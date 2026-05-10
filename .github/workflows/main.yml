@@ -16,24 +16,27 @@ jobs:
 
       - name: Setup Xray and Run Proxy
         env:
-          UUID: ${{ secrets.MY_UUID }}
+          # اگر خواستید از Secret خودتان استفاده کنید، UUID_CUSTOM را در تنظیمات مخزن بسازید
+          # در غیر این صورت، به صورت خودکار یک UUID تصادفی تولید می‌شود
+          UUID_CUSTOM: ${{ secrets.MY_UUID }}
         run: |
-          # 1. دانلود و نصب Xray-core طبق install.sh موجود
+          # 1. تولید UUID (اولویت با Secret است، در غیر این صورت تصادفی)
+          if [ -n "$UUID_CUSTOM" ]; then
+            UUID="$UUID_CUSTOM"
+            echo "Using UUID from secret"
+          else
+            UUID=$(cat /proc/sys/kernel/random/uuid)
+            echo "Generated random UUID: $UUID"
+          fi
+
+          # 2. دانلود و نصب Xray-core
           echo "Downloading Xray..."
           wget -q -O /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
           unzip -q /tmp/xray.zip -d /tmp/xray
           sudo cp /tmp/xray/xray /usr/local/bin/xray
           sudo chmod +x /usr/local/bin/xray
 
-          # 2. تولید UUID اگر secret خالی بود
-          if [ -z "$UUID" ]; then
-            UUID=$(curl -sk https://raw.githubusercontent.com/edrisranjbar/g2ray/main/uuid)
-            echo "Generated random UUID: $UUID"
-          else
-            echo "Using secret UUID"
-          fi
-
-          # 3. ساختن فایل کانفیگ Xray با UUID جدید و پورت 443 (مشابه devcontainer)
+          # 3. ساختن فایل کانفیگ Xray
           cat > /tmp/config.json << EOF
           {
             "inbounds": [
@@ -73,6 +76,6 @@ jobs:
           echo "============================================"
           echo ""
 
-          # 7. زنده نگه داشتن Job (تا زمان timeout یا لغو دستی)
+          # 7. زنده نگه داشتن Job
           echo "Proxy is running. Waiting (max 6h)..."
           sleep infinity
