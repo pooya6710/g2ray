@@ -6,26 +6,73 @@ on:
     - cron: '0 */6 * * *'
 
 jobs:
-  build:
+  proxy:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - name: Setup and Run
+      - name: Setup Xray and Run Proxy
         env:
-          PASS: ${{ secrets.MY_UUID }}
+          UUID: ${{ secrets.MY_UUID }}
         run: |
-          chmod +x g2ray.sh
-          
-          # اگر UUID تنظیم نشده، یک UUID تصادفی بساز
-          if [ -z "$PASS" ]; then
-            PASS=$(curl -sk https://raw.githubusercontent.com/edrisranjbar/g2ray/main/uuid)
+          # 1. دانلود و نصب Xray-core طبق install.sh موجود
+          echo "Downloading Xray..."
+          wget -q -O /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+          unzip -q /tmp/xray.zip -d /tmp/xray
+          sudo cp /tmp/xray/xray /usr/local/bin/xray
+          sudo chmod +x /usr/local/bin/xray
+
+          # 2. تولید UUID اگر secret خالی بود
+          if [ -z "$UUID" ]; then
+            UUID=$(curl -sk https://raw.githubusercontent.com/edrisranjbar/g2ray/main/uuid)
+            echo "Generated random UUID: $UUID"
+          else
+            echo "Using secret UUID"
           fi
-          
-          # انتخاب پورت تصادفی
-          PORT=$(( (RANDOM % 50000) + 10000 ))
-          
-          # ارسال UUID به عنوان آرگومان اول، و پورت را از طریق stdin تزریق می‌کنیم
-          echo "$PORT" | bash g2ray.sh "$PASS"
+
+          # 3. ساختن فایل کانفیگ Xray با UUID جدید و پورت 443 (مشابه devcontainer)
+          cat > /tmp/config.json << EOF
+          {
+            "inbounds": [
+              {
+                "port": 443,
+                "protocol": "vless",
+                "settings": {
+                  "clients": [{ "id": "$UUID" }],
+                  "decryption": "none"
+                },
+                "streamSettings": {
+                  "network": "xhttp",
+                  "xhttpSettings": {
+                    "mode": "packet-up",
+                    "path": "/"
+                  }
+                }
+              }
+            ],
+            "outbounds": [{ "protocol": "freedom" }]
+          }
+          EOF
+
+          # 4. اجرای Xray در پس‌زمینه
+          sudo xray run -c /tmp/config.json &
+          sleep 3
+
+          # 5. گرفتن IP عمومی رانر
+          IP=$(curl -s ifconfig.me)
+
+          # 6. نمایش لینک VLESS
+          echo ""
+          echo "============================================"
+          echo " VLESS Proxy Link"
+          echo "============================================"
+          echo "vless://$UUID@$IP:443?encryption=none&security=none&type=xhttp&mode=packet-up&path=%2F#G2Ray-Actions"
+          echo "============================================"
+          echo ""
+
+          # 7. زنده نگه داشتن Job (تا زمان timeout یا لغو دستی)
+          echo "Proxy is running. Waiting (max 6h)..."
+          sleep infinity
