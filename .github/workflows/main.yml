@@ -11,16 +11,15 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - uses: actions/checkout@v5  # ارتقا به نسخه ۵ برای پشتیبانی از Node.js 24
+      - uses: actions/checkout@v5
 
       - name: Setup and Run
         env:
           PASS: ${{ secrets.MY_UUID }}
         run: |
-          # دادن مجوز اجرا به اسکریپت (حل مشکل exit code 127)
           chmod +x g2ray.sh
           
-          # بررسی و تنظیم UUID
+          # اگر UUID تنظیم نشده، یک UUID تصادفی بساز
           if [ -z "$PASS" ]; then
             PASS=$(curl -sk https://raw.githubusercontent.com/edrisranjbar/g2ray/main/uuid)
           fi
@@ -28,5 +27,5 @@ jobs:
           # انتخاب پورت تصادفی
           PORT=$(( (RANDOM % 50000) + 10000 ))
           
-          # اجرای اسکریپت اصلی
-          bash g2ray.sh "$PASS" "$PORT"
+          # ارسال UUID به عنوان آرگومان اول، و پورت را از طریق stdin تزریق می‌کنیم
+          echo "$PORT" | bash g2ray.sh "$PASS"
