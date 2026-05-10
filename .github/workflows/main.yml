@@ -3,25 +3,22 @@ name: Run G2Ray
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'  # هر ۶ ساعت یکبار ری‌استارت می‌شود
+    - cron: '0 */6 * * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # حداکثر ۶ ساعت اجرا
+    timeout-minutes: 360
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4  # نسخه ۴ از Node.js 20 استفاده نمی‌کند
 
       - name: Setup and Run
         env:
           PASS: ${{ secrets.MY_UUID }}
         run: |
-          # اگر UUID تنظیم نشده، یک UUID تصادفی بساز
           if [ -z "$PASS" ]; then
             PASS=$(curl -sk https://raw.githubusercontent.com/edrisranjbar/g2ray/main/uuid)
           fi
-          # انتخاب پورت تصادفی
           PORT=$(( (RANDOM % 50000) + 10000 ))
-          # اجرای اسکریپت اصلی با UUID و پورت
           bash g2ray.sh "$PASS" "$PORT"
