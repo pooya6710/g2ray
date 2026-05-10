@@ -1,4 +1,4 @@
-name: Run G2Ray
+name: Run G2Ray (with Cloudflare Tunnel)
 
 on:
   workflow_dispatch:
@@ -14,19 +14,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup Xray and Run Proxy
+      - name: Setup Xray and Run Proxy with Cloudflare Tunnel
         env:
-          # اگر خواستید از Secret خودتان استفاده کنید، UUID_CUSTOM را در تنظیمات مخزن بسازید
-          # در غیر این صورت، به صورت خودکار یک UUID تصادفی تولید می‌شود
-          UUID_CUSTOM: ${{ secrets.MY_UUID }}
+          UUID_CUSTOM: ${{ secrets.MY_UUID }}  # در صورت تمایل UUID ثابت
         run: |
-          # 1. تولید UUID (اولویت با Secret است، در غیر این صورت تصادفی)
+          # 1. تولید UUID
           if [ -n "$UUID_CUSTOM" ]; then
             UUID="$UUID_CUSTOM"
-            echo "Using UUID from secret"
+            echo "Using custom UUID"
           else
             UUID=$(cat /proc/sys/kernel/random/uuid)
-            echo "Generated random UUID: $UUID"
+            echo "Generated UUID: $UUID"
           fi
 
           # 2. دانلود و نصب Xray-core
@@ -36,7 +34,7 @@ jobs:
           sudo cp /tmp/xray/xray /usr/local/bin/xray
           sudo chmod +x /usr/local/bin/xray
 
-          # 3. ساختن فایل کانفیگ Xray
+          # 3. ساختن کانفیگ Xray (بدون TLS، چون تونل هندل می‌کند)
           cat > /tmp/config.json << EOF
           {
             "inbounds": [
@@ -60,22 +58,47 @@ jobs:
           }
           EOF
 
-          # 4. اجرای Xray در پس‌زمینه
+          # 4. اجرای Xray
           sudo xray run -c /tmp/config.json &
-          sleep 3
+          sleep 2
 
-          # 5. گرفتن IP عمومی رانر
-          IP=$(curl -s ifconfig.me)
+          # 5. دانلود و راه‌اندازی Cloudflare Tunnel
+          echo "Setting up Cloudflare Tunnel..."
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
 
-          # 6. نمایش لینک VLESS
+          # اجرای تونل (HTTP mode) و دریافت دامنه موقت
+          # منتظر می‌مانیم تا دامنه در stdout چاپ شود
+          ./cloudflared tunnel --url http://localhost:443 > /tmp/tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+
+          # 6. استخراج دامنه trycloudflare.com از لاگ
+          # صبر می‌کنیم تا دامنه ظاهر شود (حداکثر ۳۰ ثانیه)
+          for i in {1..30}; do
+            DOMAIN=$(grep -o 'https://[^ ]*\.trycloudflare\.com' /tmp/tunnel.log | head -1 | sed 's|https://||')
+            if [ -n "$DOMAIN" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$DOMAIN" ]; then
+            echo "Could not obtain Cloudflare domain!"
+            cat /tmp/tunnel.log
+            exit 1
+          fi
+
+          echo "Tunnel domain: $DOMAIN"
+
+          # 7. ساخت لینک VLESS با دامنه تونل و TLS
           echo ""
           echo "============================================"
-          echo " VLESS Proxy Link"
+          echo " VLESS Proxy Link (Cloudflare Tunnel)"
           echo "============================================"
-          echo "vless://$UUID@$IP:443?encryption=none&security=none&type=xhttp&mode=packet-up&path=%2F#G2Ray-Actions"
+          echo "vless://$UUID@$DOMAIN:443?encryption=none&security=tls&sni=$DOMAIN&type=xhttp&mode=packet-up&path=%2F#G2Ray-Tunnel"
           echo "============================================"
           echo ""
 
-          # 7. زنده نگه داشتن Job
-          echo "Proxy is running. Waiting (max 6h)..."
+          # 8. زنده نگه داشتن Job
+          echo "Proxy and tunnel are running. Waiting (max 6h)..."
           sleep infinity
